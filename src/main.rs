@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod init;
 mod utils;
