@@ -10,21 +10,63 @@ It will work as such
 
 ````
 ```sh
-# When creating a tour
-tour init -m "After running *npm init* we get our template"
+# The format of this is:
 
-tour commit file1.sh file2.sh -m "In file1 we add ..., in file2 we add ..."
+command args
+# ->
+# output
+# output line 2
 
-tour end -m "Now your tour is complete!"
+# CREATING A TOUR
+tour init -m "After running *cargo init* we get our template"
+tour commit src/lib.rs -m "In lib.rs we add some functions"
+tour commit src/main.rs -m "We import our newly made function from lib.rs"
+tour end -m "Now your tour is complete and you can use rust modules!"
+
+tour start
+# ->
+# New files:
+# ./cargo.lock
+# ./cargo.toml
+# src/main.rs
+#
+# Explanation
+# After running *cargo init* we get our template
+
+tour next
+# ->
+# New files:
+# src/lib.rs
+# Explanation
+# In lib.rs we add some functions
+
+tour prev
+# ->
+# New files:
+# ./cargo.lock
+# ./cargo.toml
+# src/main.rs
+#
+# Explanation
+# After running *cargo init* we get our template
+
+tour next 2
+# ->
+# No new files.
+
+# Changes:
+# src/main.rs
+
+# Explanation
+# We import our newly made function from lib.rs
+
+tour next
+# ->
+# Tutorial Finished
+# Explanation
+# Now your tour is complete and you can use rust modules!
 
 # EXTRAS:
 tour author -> Add information about the author if there are questions
-
-
-tour start
-New files:
-file1.sh
-file2.sh
-
 ```
 ````
