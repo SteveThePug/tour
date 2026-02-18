@@ -2,6 +2,11 @@ use clap::{Parser, Subcommand};
 use std::error::Error;
 use std::path::PathBuf;
 
+mod init;
+mod utils;
+
+const TOUR_DIR: &str = "./.tour";
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -13,8 +18,10 @@ struct Args {
 enum Commands {
     // Create a new tour
     Init {
-        #[arg(short, long, value_name = "MESSAGE")]
-        message: Option<String>,
+        #[arg(value_name = "FILES")]
+        files: Vec<PathBuf>,
+        #[arg(short, value_name = "MESSAGE")]
+        message: String,
     },
     // Add steps to the tour
     Commit {
@@ -43,6 +50,9 @@ enum Commands {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-
+    match args.command {
+        Some(Commands::Init { files, message }) => crate::init::init(files, message)?,
+        _ => println!("command not found"),
+    }
     Ok(())
 }
