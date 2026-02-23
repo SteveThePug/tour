@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
+mod commit;
 mod init;
 mod utils;
 
@@ -28,7 +29,7 @@ enum Commands {
         files: Vec<PathBuf>,
 
         #[arg(short, long, value_name = "MESSAGE")]
-        message: Option<String>,
+        message: String,
     },
     // Finish the tour
     End {
@@ -52,6 +53,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     match args.command {
         Some(Commands::Init { files, message }) => crate::init::init(files, message)?,
+        Some(Commands::Commit { files, message }) => crate::commit::commit(files, message)?,
         _ => println!("command not found"),
     }
     Ok(())
