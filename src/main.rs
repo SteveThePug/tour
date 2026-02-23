@@ -3,10 +3,14 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 
 mod commit;
+mod end;
 mod init;
+mod next;
+mod prev;
 mod utils;
 
 const TOUR_DIR: &str = "./.tour";
+const DEFAULT_SESSION: &str = "./.tour/session";
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -34,7 +38,7 @@ enum Commands {
     // Finish the tour
     End {
         #[arg(short, long, value_name = "MESSAGE")]
-        message: Option<String>,
+        message: String,
     },
 
     // Go to next step of tour
@@ -54,6 +58,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     match args.command {
         Some(Commands::Init { files, message }) => crate::init::init(files, message)?,
         Some(Commands::Commit { files, message }) => crate::commit::commit(files, message)?,
+        Some(Commands::End { message }) => crate::end::end(message)?,
+        Some(Commands::Next { n }) => crate::next::next(n)?,
+        Some(Commands::Prev { n }) => crate::prev::prev(n)?,
         _ => println!("command not found"),
     }
     Ok(())
