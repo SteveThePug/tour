@@ -17,3 +17,8 @@ pub fn copy_files(files: Vec<&Path>, dest_dir: &Path) -> Result<(), io::Error> {
     }
     Ok(())
 }
+
+pub fn session_step(session_file: &Path) -> Result<u32, Box<dyn std::error::Error>> {
+    // Read ./.tour/session to find what step user is currently looking at
+    Ok((0))
+}
