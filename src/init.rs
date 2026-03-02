@@ -1,25 +1,20 @@
 // Create a .tour folder
-// Populate with tour/steps/0/message
-// Populate with tour/steps/0/files/file1
-// Populate with tour/steps/0/files/file2
+// Create directory ./.tour/steps that stores tutorial steps
+// Create file ./.tour/session that logs sessions information
 
 use crate::TOUR_DIR;
-use crate::utils::copy_files;
-
-use std::fs;
-use std::fs::File;
-use std::io::Write;
+use std::fs::DirBuilder;
 use std::path::PathBuf;
 
-pub fn init(files: Vec<PathBuf>, message: String) -> Result<(), std::io::Error> {
-    // // Convert PathBuf to &Path
-    // let files = files.iter().map(|p| p.as_path()).collect();
-    //
-    // // Check TOUR_DIR exists (it shouldn't because user calls init)
-    // if fs::exists(TOUR_DIR)? {
-    //     panic!("{} folder exists", TOUR_DIR);
-    // }
-    // // Create dir recursively
+// Creates the directory for tour
+pub fn init() -> Result<(), std::io::Error> {
+    let tour_dir = PathBuf::from(TOUR_DIR);
 
-    Ok(())
+    DirBuilder::new()
+        .recursive(true)
+        .create(tour_dir.join("steps"))?;
+
+    std::fs::File::create(tour_dir.join("session"))?;
+
+    crate::info::set_info()
 }
