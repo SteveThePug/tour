@@ -1,3 +1,4 @@
+use crate::add::{clear_staged, get_staged};
 use crate::error::CommitError;
 use crate::utils::{copy_path, is_descendant_of_current_dir, is_file_in_dir};
 use crate::TOUR_DIR;
@@ -6,6 +7,16 @@ use std::path::{Path, PathBuf};
 
 pub fn commit(files: Vec<PathBuf>, message: String) -> Result<(), CommitError> {
     let tour_dir = Path::new(TOUR_DIR);
+
+    let files = if files.is_empty() {
+        let staged = get_staged()?;
+        if staged.is_empty() {
+            return Err(CommitError::NothingToCommit);
+        }
+        staged
+    } else {
+        files
+    };
 
     for file in &files {
         if !is_descendant_of_current_dir(file)? {
@@ -30,6 +41,7 @@ pub fn commit(files: Vec<PathBuf>, message: String) -> Result<(), CommitError> {
     }
 
     fs::write(step_dir.join("message"), &message)?;
+    clear_staged()?;
     crate::info::update_last_modified()?;
 
     println!("Step {}: {}", step_num, message);

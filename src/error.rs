@@ -5,6 +5,7 @@ use std::path::PathBuf;
 pub enum CommitError {
     NotADescendantOfCurrentDir(PathBuf),
     InsideTourDir(PathBuf),
+    NothingToCommit,
     Io(io::Error),
 }
 
@@ -16,6 +17,9 @@ impl std::fmt::Display for CommitError {
             }
             Self::InsideTourDir(path) => {
                 write!(f, "File {:?} is inside a .tour directory, which is not allowed.", path)
+            }
+            Self::NothingToCommit => {
+                write!(f, "Nothing to commit. Use `tour add <files>` to stage files first.")
             }
             Self::Io(e) => write!(f, "IO error: {}", e),
         }

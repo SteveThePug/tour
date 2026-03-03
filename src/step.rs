@@ -1,7 +1,7 @@
 use crate::utils::get_tour_step;
 use crate::SESSION_PATH;
 use crate::TOUR_DIR;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -62,19 +62,14 @@ fn step(delta: i32) -> Result<(), io::Error> {
     let new_step = new_step as u32;
 
     let cwd = std::env::current_dir()?;
-    let old_files = snapshot_files(&cwd)?;
+    let tracked = get_tracked_files()?;
+    let old_files = snapshot_tracked_files(&cwd, &tracked)?;
 
-    // Clear CWD except .tour/
-    for entry in fs::read_dir(&cwd)? {
-        let entry = entry?;
-        if entry.file_name() == ".tour" {
-            continue;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            fs::remove_dir_all(&path)?;
-        } else {
-            fs::remove_file(&path)?;
+    // Remove only tracked files from CWD
+    for relative in &tracked {
+        let full = cwd.join(relative);
+        if full.is_file() {
+            fs::remove_file(&full)?;
         }
     }
 
@@ -91,7 +86,7 @@ fn step(delta: i32) -> Result<(), io::Error> {
     // Persist the new step
     fs::write(SESSION_PATH, format!("STEP={}", new_step))?;
 
-    let new_files = snapshot_files(&cwd)?;
+    let new_files = snapshot_tracked_files(&cwd, &tracked)?;
     print_changes(&old_files, &new_files);
 
     let message = fs::read_to_string(step_dir.join("message")).unwrap_or_default();
@@ -100,29 +95,51 @@ fn step(delta: i32) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn snapshot_files(root: &Path) -> Result<BTreeMap<PathBuf, String>, io::Error> {
+fn snapshot_tracked_files(root: &Path, tracked: &BTreeSet<PathBuf>) -> Result<BTreeMap<PathBuf, String>, io::Error> {
     let mut files = BTreeMap::new();
-    collect_files(root, root, &mut files)?;
+    for relative in tracked {
+        let full = root.join(relative);
+        if full.is_file() {
+            let content = fs::read_to_string(&full).unwrap_or_default();
+            files.insert(relative.clone(), content);
+        }
+    }
     Ok(files)
 }
 
-fn collect_files(
-    root: &Path,
+fn get_tracked_files() -> Result<BTreeSet<PathBuf>, io::Error> {
+    let steps_dir = Path::new(TOUR_DIR).join("steps");
+    let mut tracked = BTreeSet::new();
+
+    if !steps_dir.exists() {
+        return Ok(tracked);
+    }
+
+    for entry in fs::read_dir(&steps_dir)? {
+        let entry = entry?;
+        if entry.path().is_dir() {
+            collect_step_files(&entry.path(), &entry.path(), &mut tracked)?;
+        }
+    }
+    Ok(tracked)
+}
+
+fn collect_step_files(
+    step_root: &Path,
     dir: &Path,
-    files: &mut BTreeMap<PathBuf, String>,
+    files: &mut BTreeSet<PathBuf>,
 ) -> Result<(), io::Error> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
-        if entry.file_name() == ".tour" {
+        let path = entry.path();
+        let relative = path.strip_prefix(step_root).unwrap_or(&path).to_path_buf();
+        if relative == Path::new("message") {
             continue;
         }
-        let path = entry.path();
         if path.is_dir() {
-            collect_files(root, &path, files)?;
+            collect_step_files(step_root, &path, files)?;
         } else {
-            let relative = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
-            let content = fs::read_to_string(&path).unwrap_or_default();
-            files.insert(relative, content);
+            files.insert(relative);
         }
     }
     Ok(())
