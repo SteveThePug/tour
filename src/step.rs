@@ -1,4 +1,5 @@
-use crate::utils::get_tour_step;
+use crate::error::TourError;
+use crate::utils::{copy_tree, get_current_step, get_tour_step, require_tour};
 use crate::SESSION_PATH;
 use crate::TOUR_DIR;
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,102 +13,81 @@ const CYAN: &str = "\x1b[36m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 
-pub fn step_n(n: i32) -> Result<(), io::Error> {
-    let total = get_tour_step()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+/// Jump to step `n` (1-based, as shown to the user).
+pub fn step_n(n: u32) -> Result<(), TourError> {
+    require_tour()?;
+    let total = get_tour_step()?;
 
-    if n < 0 || n >= total as i32 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Step {} is out of range (0-{})", n, total - 1),
-        ));
+    if n < 1 || n > total {
+        return Err(TourError::StepOutOfRange { step: n, total });
     }
 
-    step(n - current_step())
+    go_to_step(n - 1, total)
 }
 
-pub fn next(n: Option<i32>) -> Result<(), io::Error> {
-    step(n.unwrap_or(1))
-}
-
-pub fn prev(n: Option<i32>) -> Result<(), io::Error> {
-    step(-n.unwrap_or(1))
-}
-
-/// Returns the current step as a signed integer.
-/// Returns -1 when the session has no step yet (reader hasn't started).
-fn current_step() -> i32 {
-    fs::read_to_string(SESSION_PATH)
-        .ok()
-        .and_then(|s| {
-            s.split("STEP=")
-                .nth(1)
-                .and_then(|v| v.trim().parse::<i32>().ok())
-        })
-        .unwrap_or(-1)
-}
-
-fn step(delta: i32) -> Result<(), io::Error> {
-    let current = current_step();
-    let total = get_tour_step()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-
-    let new_step = current + delta;
-    if new_step < 0 || new_step >= total as i32 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Step {} is out of range (0-{})", new_step, total - 1),
-        ));
+pub fn next(n: Option<u32>) -> Result<(), TourError> {
+    require_tour()?;
+    let total = get_tour_step()?;
+    let delta = n.unwrap_or(1);
+    let target = match get_current_step() {
+        Some(c) => c.saturating_add(delta),
+        None if delta > 0 => delta - 1,
+        None => return Err(TourError::StepOutOfRange { step: 0, total }),
+    };
+    if target >= total {
+        return Err(TourError::StepOutOfRange {
+            step: target + 1,
+            total,
+        });
     }
-    let new_step = new_step as u32;
+    go_to_step(target, total)
+}
 
+pub fn prev(n: Option<u32>) -> Result<(), TourError> {
+    require_tour()?;
+    let total = get_tour_step()?;
+    let delta = n.unwrap_or(1);
+    let current = get_current_step().ok_or(TourError::StepOutOfRange { step: 0, total })?;
+    let target = current
+        .checked_sub(delta)
+        .ok_or(TourError::StepOutOfRange { step: 0, total })?;
+    go_to_step(target, total)
+}
+
+fn go_to_step(target: u32, total: u32) -> Result<(), TourError> {
     let cwd = std::env::current_dir()?;
     let tracked = get_tracked_files()?;
     let old_files = snapshot_tracked_files(&cwd, &tracked)?;
 
-    // Remove only tracked files from CWD
-    for relative in &tracked {
-        let full = cwd.join(relative);
-        if full.is_file() {
-            fs::remove_file(&full)?;
-        }
-    }
+    remove_tracked_files(&cwd, &tracked)?;
 
     // Copy step contents into CWD (skipping the message file)
-    let step_dir = Path::new(TOUR_DIR).join("steps").join(new_step.to_string());
+    let step_dir = Path::new(TOUR_DIR).join("steps").join(target.to_string());
     for entry in fs::read_dir(&step_dir)? {
         let entry = entry?;
         if entry.file_name() == "message" {
             continue;
         }
-        copy_into(&entry.path(), &cwd.join(entry.file_name()))?;
+        copy_tree(&entry.path(), &cwd.join(entry.file_name()))?;
     }
 
     // Persist the new step
-    fs::write(SESSION_PATH, format!("STEP={}", new_step))?;
+    fs::write(SESSION_PATH, format!("STEP={}", target))?;
 
     let new_files = snapshot_tracked_files(&cwd, &tracked)?;
     print_changes(&old_files, &new_files);
 
     let message = fs::read_to_string(step_dir.join("message")).unwrap_or_default();
-    println!("\n{BOLD}Step {new_step}/{total}:{RESET} {}", message.trim());
+    println!(
+        "\n{BOLD}Step {}/{total}:{RESET} {}",
+        target + 1,
+        message.trim()
+    );
 
     Ok(())
 }
 
-fn snapshot_tracked_files(root: &Path, tracked: &BTreeSet<PathBuf>) -> Result<BTreeMap<PathBuf, String>, io::Error> {
-    let mut files = BTreeMap::new();
-    for relative in tracked {
-        let full = root.join(relative);
-        if full.is_file() {
-            let content = fs::read_to_string(&full).unwrap_or_default();
-            files.insert(relative.clone(), content);
-        }
-    }
-    Ok(files)
-}
-
-fn get_tracked_files() -> Result<BTreeSet<PathBuf>, io::Error> {
+pub fn get_tracked_files() -> Result<BTreeSet<PathBuf>, io::Error> {
     let steps_dir = Path::new(TOUR_DIR).join("steps");
     let mut tracked = BTreeSet::new();
 
@@ -122,6 +102,30 @@ fn get_tracked_files() -> Result<BTreeSet<PathBuf>, io::Error> {
         }
     }
     Ok(tracked)
+}
+
+pub fn remove_tracked_files(cwd: &Path, tracked: &BTreeSet<PathBuf>) -> Result<(), io::Error> {
+    let mut dirs_to_check = BTreeSet::new();
+    for relative in tracked {
+        let full = cwd.join(relative);
+        if full.is_file() {
+            fs::remove_file(&full)?;
+            if let Some(parent) = relative.parent()
+                && parent != Path::new("")
+            {
+                dirs_to_check.insert(cwd.join(parent));
+            }
+        }
+    }
+    // Remove empty directories (deepest first)
+    let mut dirs: Vec<_> = dirs_to_check.into_iter().collect();
+    dirs.sort_by_key(|b| std::cmp::Reverse(b.components().count()));
+    for dir in dirs {
+        if dir.is_dir() && dir.read_dir().map(|mut d| d.next().is_none()).unwrap_or(false) {
+            let _ = fs::remove_dir(&dir);
+        }
+    }
+    Ok(())
 }
 
 fn collect_step_files(
@@ -145,13 +149,34 @@ fn collect_step_files(
     Ok(())
 }
 
-fn print_changes(old: &BTreeMap<PathBuf, String>, new: &BTreeMap<PathBuf, String>) {
+/// Snapshots tracked files from root. Returns None for binary files (invalid UTF-8).
+fn snapshot_tracked_files(
+    root: &Path,
+    tracked: &BTreeSet<PathBuf>,
+) -> Result<BTreeMap<PathBuf, Option<String>>, io::Error> {
+    let mut files = BTreeMap::new();
+    for relative in tracked {
+        let full = root.join(relative);
+        if full.is_file() {
+            files.insert(relative.clone(), fs::read_to_string(&full).ok());
+        }
+    }
+    Ok(files)
+}
+
+fn print_changes(
+    old: &BTreeMap<PathBuf, Option<String>>,
+    new: &BTreeMap<PathBuf, Option<String>>,
+) {
     for (path, new_content) in new {
         match old.get(path) {
             None => println!("{GREEN}  new:      {}{RESET}", path.display()),
             Some(old_content) if old_content != new_content => {
                 println!("{CYAN}  modified: {}{RESET}", path.display());
-                print_diff(old_content, new_content);
+                match (old_content, new_content) {
+                    (Some(o), Some(n)) => print_diff(o, n),
+                    _ => println!("    (binary file)"),
+                }
             }
             _ => {}
         }
@@ -217,8 +242,8 @@ fn print_diff(old: &str, new: &str) {
     for &ci in &changed {
         let lo = ci.saturating_sub(CTX);
         let hi = (ci + CTX + 1).min(ops.len());
-        for v in lo..hi {
-            visible[v] = true;
+        for item in visible.iter_mut().take(hi).skip(lo) {
+            *item = true;
         }
     }
 
@@ -238,17 +263,4 @@ fn print_diff(old: &str, new: &str) {
             _ => println!("    {line}"),
         }
     }
-}
-
-fn copy_into(src: &Path, dest: &Path) -> Result<(), io::Error> {
-    if src.is_dir() {
-        fs::create_dir_all(dest)?;
-        for entry in fs::read_dir(src)? {
-            let entry = entry?;
-            copy_into(&entry.path(), &dest.join(entry.file_name()))?;
-        }
-    } else {
-        fs::copy(src, dest)?;
-    }
-    Ok(())
 }

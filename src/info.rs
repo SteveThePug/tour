@@ -94,8 +94,10 @@ pub fn update_last_modified() -> Result<(), io::Error> {
     fs::write(INFO_PATH, info.serialize())
 }
 
-pub fn info() -> Result<(), io::Error> {
-    get_info()
+pub fn info() -> Result<(), crate::error::TourError> {
+    crate::utils::require_tour()?;
+    get_info()?;
+    Ok(())
 }
 
 fn current_date() -> String {
@@ -134,5 +136,5 @@ fn days_to_ymd(mut days: u32) -> (u32, u32, u32) {
 }
 
 fn is_leap(year: u32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
