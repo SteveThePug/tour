@@ -32,11 +32,12 @@ pub fn add(files: Vec<PathBuf>) -> Result<(), TourError> {
         .open(STAGED_PATH)?;
 
     for file in &files {
-        if existing_set.contains(file) {
-            println!("already staged: {}", file.display());
+        let normalized: PathBuf = file.components().collect();
+        if existing_set.contains(&normalized) {
+            println!("already staged: {}", normalized.display());
         } else {
-            writeln!(staged, "{}", file.display())?;
-            println!("staged: {}", file.display());
+            writeln!(staged, "{}", normalized.display())?;
+            println!("staged: {}", normalized.display());
         }
     }
 
