@@ -17,8 +17,8 @@ pub fn get_current_step() -> Option<u32> {
     fs::read_to_string(SESSION_PATH)
         .ok()
         .and_then(|s| {
-            s.split("STEP=")
-                .nth(1)
+            s.lines()
+                .find_map(|l| l.strip_prefix("STEP="))
                 .and_then(|v| v.trim().parse::<u32>().ok())
         })
 }
@@ -53,7 +53,12 @@ pub fn get_tour_step() -> Result<u32, TourError> {
 pub fn copy_path(src: &Path, dest_dir: &Path) -> Result<(), io::Error> {
     let relative_src = if src.is_absolute() {
         let cwd = std::env::current_dir()?;
-        src.strip_prefix(&cwd).unwrap_or(src).to_path_buf()
+        src.strip_prefix(&cwd)
+            .map_err(|_| io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("path '{}' is not under the current directory", src.display()),
+            ))?
+            .to_path_buf()
     } else {
         src.to_path_buf()
     };
