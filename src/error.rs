@@ -31,10 +31,10 @@ impl std::fmt::Display for TourError {
                 write!(f, "Cannot end a tour with no steps. Use `tour commit` to add steps first.")
             }
             Self::NotADescendant(p) => {
-                write!(f, "File {:?} is not a descendant of the working directory.", p)
+                write!(f, "File {} is not a descendant of the working directory.", p.display())
             }
             Self::InsideTourDir(p) => {
-                write!(f, "File {:?} is inside a .tour directory, which is not allowed.", p)
+                write!(f, "File {} is inside a .tour directory, which is not allowed.", p.display())
             }
             Self::FileNotFound(p) => write!(f, "File not found: {}", p.display()),
             Self::StepOutOfRange { step, total } => {
