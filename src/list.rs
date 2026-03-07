@@ -15,7 +15,8 @@ pub fn list() -> Result<(), TourError> {
 
     for i in 0..total {
         let step_dir = Path::new(TOUR_DIR).join("steps").join(i.to_string());
-        let message = fs::read_to_string(step_dir.join("message")).unwrap_or_default();
+        let message = fs::read_to_string(step_dir.join("message"))
+            .unwrap_or_else(|_| "(no message)".into());
         println!("  {}. {}", i + 1, message.trim());
     }
     Ok(())

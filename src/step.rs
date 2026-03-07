@@ -59,17 +59,28 @@ fn go_to_step(target: u32, total: u32) -> Result<(), TourError> {
     let tracked = get_tracked_files()?;
     let old_files = snapshot_tracked_files(&cwd, &tracked)?;
 
-    remove_tracked_files(&cwd, &tracked)?;
-
-    // Copy step contents into CWD (skipping the message file)
+    // Stage new step files to a temp dir first — if this fails, working files are untouched
     let step_dir = Path::new(TOUR_DIR).join("steps").join(target.to_string());
+    let tmp_dir = Path::new(TOUR_DIR).join("tmp_step");
+    if tmp_dir.exists() {
+        fs::remove_dir_all(&tmp_dir)?;
+    }
+    fs::create_dir_all(&tmp_dir)?;
     for entry in fs::read_dir(&step_dir)? {
         let entry = entry?;
         if entry.file_name() == "message" {
             continue;
         }
+        copy_tree(&entry.path(), &tmp_dir.join(entry.file_name()))?;
+    }
+
+    // Now safe to remove old tracked files and install the new ones
+    remove_tracked_files(&cwd, &tracked)?;
+    for entry in fs::read_dir(&tmp_dir)? {
+        let entry = entry?;
         copy_tree(&entry.path(), &cwd.join(entry.file_name()))?;
     }
+    fs::remove_dir_all(&tmp_dir)?;
 
     // Persist the new step
     fs::write(SESSION_PATH, format!("STEP={}", target))?;
@@ -77,7 +88,8 @@ fn go_to_step(target: u32, total: u32) -> Result<(), TourError> {
     let new_files = snapshot_tracked_files(&cwd, &tracked)?;
     print_changes(&old_files, &new_files);
 
-    let message = fs::read_to_string(step_dir.join("message")).unwrap_or_default();
+    let message = fs::read_to_string(step_dir.join("message"))
+        .unwrap_or_else(|_| "(no message)".into());
     println!(
         "\n{BOLD}Step {}/{total}:{RESET} {}",
         target + 1,
@@ -194,6 +206,11 @@ fn print_diff(old: &str, new: &str) {
 
     let m = old_lines.len();
     let n = new_lines.len();
+
+    if m > 1000 || n > 1000 {
+        println!("    (file changed)");
+        return;
+    }
 
     // LCS table
     let mut dp = vec![vec![0usize; n + 1]; m + 1];
