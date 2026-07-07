@@ -1,8 +1,8 @@
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::error::TourError;
+use crate::error::{IoResultExt, TourError};
 use crate::SESSION_PATH;
 use crate::TOUR_DIR;
 
@@ -25,7 +25,8 @@ pub fn get_current_step() -> Option<u32> {
 
 pub fn get_tour_step() -> Result<u32, TourError> {
     let steps_dir = Path::new(TOUR_DIR).join("steps");
-    let mut indices: Vec<u32> = fs::read_dir(&steps_dir)?
+    let mut indices: Vec<u32> = fs::read_dir(&steps_dir)
+        .context(format!("failed to read steps directory {}", steps_dir.display()))?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir())
         .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
@@ -75,35 +76,32 @@ pub fn copy_path(src: &Path, dest_dir: &Path) -> Result<(), io::Error> {
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)?;
         }
+        // Unlink first: the destination may be hardlinked into a previous
+        // step's snapshot, and copying in place would write through the link.
+        if dest.exists() {
+            fs::remove_file(&dest)?;
+        }
         fs::copy(src, &dest)?;
     }
     Ok(())
 }
 
-/// Recursively copies src to dest. If src is a directory, copies its contents
-/// into dest. If src is a file, copies it to dest.
-pub fn copy_tree(src: &Path, dest: &Path) -> Result<(), io::Error> {
-    if src.is_dir() {
-        fs::create_dir_all(dest)?;
-        for entry in fs::read_dir(src)? {
-            let entry = entry?;
-            copy_tree(&entry.path(), &dest.join(entry.file_name()))?;
+/// Validates that every path exists, lives under the working directory, and is
+/// not inside the .tour directory. Canonicalizes the anchors once, not per file.
+pub fn validate_paths(files: &[PathBuf]) -> Result<(), TourError> {
+    let cwd = std::env::current_dir()?.canonicalize()?;
+    let tour_canon = Path::new(TOUR_DIR).canonicalize()?;
+    for file in files {
+        if !file.exists() {
+            return Err(TourError::FileNotFound(file.clone()));
         }
-    } else {
-        if let Some(parent) = dest.parent() {
-            fs::create_dir_all(parent)?;
+        let canon = file.canonicalize()?;
+        if !canon.starts_with(&cwd) {
+            return Err(TourError::NotADescendant(file.clone()));
         }
-        fs::copy(src, dest)?;
+        if canon.starts_with(&tour_canon) {
+            return Err(TourError::InsideTourDir(file.clone()));
+        }
     }
     Ok(())
-}
-
-pub fn is_descendant_of_current_dir(file: &Path) -> Result<bool, io::Error> {
-    is_file_in_dir(file, &std::env::current_dir()?)
-}
-
-pub fn is_file_in_dir(file: &Path, dir: &Path) -> Result<bool, io::Error> {
-    let file_canon = file.canonicalize()?;
-    let dir_canon = dir.canonicalize()?;
-    Ok(file_canon.starts_with(&dir_canon))
 }

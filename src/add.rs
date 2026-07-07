@@ -1,27 +1,15 @@
 use crate::error::TourError;
-use crate::utils::{is_descendant_of_current_dir, is_file_in_dir, require_tour};
-use crate::TOUR_DIR;
+use crate::style::{green, reset};
+use crate::utils::{require_tour, validate_paths};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub const STAGED_PATH: &str = "./.tour/staged";
 
 pub fn add(files: Vec<PathBuf>) -> Result<(), TourError> {
     require_tour()?;
-    let tour_dir = Path::new(TOUR_DIR);
-
-    for file in &files {
-        if !file.exists() {
-            return Err(TourError::FileNotFound(file.clone()));
-        }
-        if !is_descendant_of_current_dir(file)? {
-            return Err(TourError::NotADescendant(file.clone()));
-        }
-        if is_file_in_dir(file, tour_dir)? {
-            return Err(TourError::InsideTourDir(file.clone()));
-        }
-    }
+    validate_paths(&files)?;
 
     let existing = get_staged()?;
     let existing_set: std::collections::HashSet<PathBuf> = existing.into_iter().collect();
@@ -37,7 +25,7 @@ pub fn add(files: Vec<PathBuf>) -> Result<(), TourError> {
             println!("already staged: {}", normalized.display());
         } else {
             writeln!(staged, "{}", normalized.display())?;
-            println!("staged: {}", normalized.display());
+            println!("{}staged:{} {}", green(), reset(), normalized.display());
         }
     }
 

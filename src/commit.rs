@@ -1,7 +1,8 @@
 use crate::add::{clear_staged, get_staged};
 use crate::error::TourError;
 use crate::rm::{clear_removed, get_removed};
-use crate::utils::{copy_path, get_tour_step, is_descendant_of_current_dir, is_file_in_dir, require_tour};
+use crate::style::{bold, reset};
+use crate::utils::{copy_path, get_tour_step, require_tour, validate_paths};
 use crate::TOUR_DIR;
 use std::collections::HashSet;
 use std::fs;
@@ -26,17 +27,7 @@ pub fn commit(files: Vec<PathBuf>, message: String) -> Result<(), TourError> {
         files
     };
 
-    for file in &files {
-        if !file.exists() {
-            return Err(TourError::FileNotFound(file.clone()));
-        }
-        if !is_descendant_of_current_dir(file)? {
-            return Err(TourError::NotADescendant(file.clone()));
-        }
-        if is_file_in_dir(file, tour_dir)? {
-            return Err(TourError::InsideTourDir(file.clone()));
-        }
-    }
+    validate_paths(&files)?;
 
     let removed = get_removed()?;
     let removed_set: HashSet<PathBuf> = removed.into_iter().collect();
@@ -68,7 +59,7 @@ pub fn commit(files: Vec<PathBuf>, message: String) -> Result<(), TourError> {
     clear_removed()?;
     crate::info::update_last_modified()?;
 
-    println!("Step {}: {}", step_num + 1, message);
+    println!("{}committed step {}{}: {}", bold(), step_num + 1, reset(), message);
     Ok(())
 }
 
@@ -102,7 +93,11 @@ fn carry_forward(
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)?;
             }
-            fs::copy(entry.path(), &dest)?;
+            // Unchanged files are hardlinked so a step costs only its changes;
+            // fall back to a copy on filesystems without hardlink support.
+            if fs::hard_link(entry.path(), &dest).is_err() {
+                fs::copy(entry.path(), &dest)?;
+            }
         }
     }
     Ok(())

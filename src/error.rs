@@ -12,8 +12,12 @@ pub enum TourError {
     InsideTourDir(PathBuf),
     FileNotFound(PathBuf),
     StepOutOfRange { step: u32, total: u32 },
+    NoStepsToNavigate,
+    NotStarted,
+    ResetNeedsForce,
     CorruptedTour(String),
     Io(io::Error),
+    IoContext { context: String, source: io::Error },
 }
 
 impl std::fmt::Display for TourError {
@@ -40,9 +44,33 @@ impl std::fmt::Display for TourError {
             Self::StepOutOfRange { step, total } => {
                 write!(f, "Step {} is out of range (1-{}).", step, total)
             }
+            Self::NoStepsToNavigate => {
+                write!(f, "This tour has no steps yet. Use `tour commit` to create one.")
+            }
+            Self::NotStarted => {
+                write!(f, "Tour not started. Run `tour start` first.")
+            }
+            Self::ResetNeedsForce => {
+                write!(f, "Refusing to reset without confirmation. Re-run with `--force`.")
+            }
             Self::CorruptedTour(msg) => write!(f, "Tour data is corrupted: {}", msg),
             Self::Io(e) => write!(f, "{}", e),
+            Self::IoContext { context, source } => write!(f, "{}: {}", context, source),
         }
+    }
+}
+
+/// Attaches a human-readable operation description to an io::Error.
+pub trait IoResultExt<T> {
+    fn context(self, ctx: impl Into<String>) -> Result<T, TourError>;
+}
+
+impl<T> IoResultExt<T> for Result<T, io::Error> {
+    fn context(self, ctx: impl Into<String>) -> Result<T, TourError> {
+        self.map_err(|e| TourError::IoContext {
+            context: ctx.into(),
+            source: e,
+        })
     }
 }
 

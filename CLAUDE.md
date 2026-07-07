@@ -40,16 +40,18 @@ Entry point is `main.rs`, which uses clap's derive macro to parse subcommands an
 - `commit.rs` — commits staged files as a new step with carry-forward from previous step; only clears staging when staging was used
 - `rm.rs` — marks files for removal in the next commit (skipped during carry-forward)
 - `end.rs` — finalizes the tour (writes `.tour/ended` marker)
-- `step.rs` — navigation: `next`, `prev`, `step_n`; handles file replacement, diff display, binary detection
-- `reset.rs` — resets tour session and removes tracked files from working directory
+- `step.rs` — navigation: `next`, `prev`, `step_n`; installs only files that differ between steps, diff display, binary detection; `next`/`prev` clamp at the ends instead of erroring
+- `reset.rs` — resets tour session and removes tracked files from working directory; prompts for confirmation (or `--force` when non-interactive)
 - `status.rs` — shows current step position and staged files
-- `list.rs` — lists all steps with their messages
+- `list.rs` — lists all steps with their messages, marking the current one
 - `info.rs` — tour metadata (author, description, language, dates)
-- `utils.rs` — shared helpers: `require_tour`, `get_current_step`, `get_tour_step`, `copy_tree`, path validation
-- `error.rs` — unified `TourError` enum with `Display` impl for user-facing messages; includes `CorruptedTour` for integrity checks
+- `utils.rs` — shared helpers: `require_tour`, `get_current_step`, `get_tour_step`, `copy_path`, `validate_paths`
+- `error.rs` — unified `TourError` enum with `Display` impl for user-facing messages; includes `CorruptedTour` for integrity checks and an `IoResultExt::context` helper for annotating IO errors
+- `style.rs` — ANSI color helpers; emit color only when stdout is a TTY and `NO_COLOR` is unset
 
 **Key design decisions:**
-- Each step is a **complete snapshot** — `commit.rs` carries forward files from the previous step before overlaying new ones
+- Each step is a **complete snapshot** — `commit.rs` carries forward files from the previous step before overlaying new ones. Carried-forward files are **hardlinked** (copy fallback), so a step only costs disk for its changes; because of this, anything overwriting a file inside `.tour/steps/` must unlink it first (see `copy_path`), and files installed into the working directory are always real copies, never links into the store
+- Navigation compares working-dir files against the target step (inode, then size, then bytes) and touches only files that differ
 - `TourError` is the unified error type across all modules, with `From<io::Error>` for automatic conversion
 - `main()` catches errors and prints them with `Display` format (not `Debug`) for user-friendly messages
 - Constants `TOUR_DIR` and `SESSION_PATH` are defined in `main.rs` and imported via `crate::`
