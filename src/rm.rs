@@ -1,4 +1,5 @@
 use crate::error::TourError;
+use crate::style::{red, reset};
 use crate::utils::require_tour;
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
@@ -23,7 +24,7 @@ pub fn rm(files: Vec<PathBuf>) -> Result<(), TourError> {
             println!("already marked for removal: {}", file.display());
         } else {
             writeln!(removed_file, "{}", file.display())?;
-            println!("marked for removal: {}", file.display());
+            println!("{}marked for removal:{} {}", red(), reset(), file.display());
         }
     }
 

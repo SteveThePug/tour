@@ -7,8 +7,7 @@ fn tour_cmd() -> Command {
 }
 
 fn setup_dir() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
-    dir
+    tempfile::tempdir().expect("failed to create temp dir")
 }
 
 fn init_tour(dir: &Path) {
@@ -472,4 +471,230 @@ fn test_status_shows_info() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("1 steps"), "expected step count in: {}", stdout);
     assert!(stdout.contains("not started"), "expected 'not started' in: {}", stdout);
+}
+
+// -- rm tests --
+
+#[test]
+fn test_rm_excludes_file_from_carry_forward() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+
+    create_test_file(dir.path(), "a.txt", "aaa");
+    create_test_file(dir.path(), "b.txt", "bbb");
+    tour_cmd().args(["commit", "a.txt", "b.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+
+    tour_cmd().args(["rm", "b.txt"]).current_dir(dir.path()).output().unwrap();
+    create_test_file(dir.path(), "a.txt", "aaa v2");
+    tour_cmd().args(["commit", "a.txt", "-m", "s2"]).current_dir(dir.path()).output().unwrap();
+
+    assert!(dir.path().join(".tour/steps/1/a.txt").exists());
+    assert!(!dir.path().join(".tour/steps/1/b.txt").exists(), "b.txt should not carry forward after rm");
+
+    // Navigating from step 2 back to step 1 restores b.txt; forward removes it
+    tour_cmd().arg("start").current_dir(dir.path()).output().unwrap();
+    assert!(dir.path().join("b.txt").exists());
+    tour_cmd().arg("next").current_dir(dir.path()).output().unwrap();
+    assert!(!dir.path().join("b.txt").exists(), "b.txt should be deleted at step 2");
+}
+
+// -- reset tests --
+
+#[test]
+fn test_reset_requires_force_when_not_interactive() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "data");
+    tour_cmd().args(["commit", "f.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+    tour_cmd().arg("start").current_dir(dir.path()).output().unwrap();
+
+    // Without --force and stdin not a tty, reset must refuse
+    let output = tour_cmd().arg("reset").current_dir(dir.path()).output().unwrap();
+    assert!(!output.status.success(), "reset without --force should fail non-interactively");
+    assert!(dir.path().join("f.txt").exists(), "files must be untouched after refused reset");
+
+    // With --force it proceeds
+    let output = tour_cmd().args(["reset", "--force"]).current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success(), "reset --force failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(!dir.path().join("f.txt").exists(), "tracked file should be removed");
+    assert!(!dir.path().join(".tour/session").exists(), "session should be cleared");
+}
+
+// -- navigation clamping and count tests --
+
+#[test]
+fn test_next_clamps_at_last_step() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "v0");
+    tour_cmd().args(["commit", "f.txt", "-m", "s0"]).current_dir(dir.path()).output().unwrap();
+    create_test_file(dir.path(), "f.txt", "v1");
+    tour_cmd().args(["commit", "f.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+    tour_cmd().arg("start").current_dir(dir.path()).output().unwrap();
+
+    // Overshooting clamps to the last step
+    let output = tour_cmd().args(["next", "10"]).current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success(), "next 10 should clamp, not fail");
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v1");
+
+    // At the last step, next is a friendly no-op
+    let output = tour_cmd().arg("next").current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Already at the last step"), "got: {}", stdout);
+}
+
+#[test]
+fn test_prev_clamps_at_first_step() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "v0");
+    tour_cmd().args(["commit", "f.txt", "-m", "s0"]).current_dir(dir.path()).output().unwrap();
+    create_test_file(dir.path(), "f.txt", "v1");
+    tour_cmd().args(["commit", "f.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+
+    tour_cmd().args(["step", "2"]).current_dir(dir.path()).output().unwrap();
+
+    // Overshooting backwards clamps to the first step
+    let output = tour_cmd().args(["prev", "10"]).current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success(), "prev 10 should clamp, not fail");
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v0");
+
+    let output = tour_cmd().arg("prev").current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Already at the first step"), "got: {}", stdout);
+}
+
+#[test]
+fn test_command_aliases() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "v0");
+    tour_cmd().args(["commit", "f.txt", "-m", "s0"]).current_dir(dir.path()).output().unwrap();
+    create_test_file(dir.path(), "f.txt", "v1");
+    tour_cmd().args(["commit", "f.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+
+    tour_cmd().args(["s", "1"]).current_dir(dir.path()).output().unwrap();
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v0");
+
+    let output = tour_cmd().arg("n").current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success(), "alias n failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v1");
+
+    let output = tour_cmd().arg("p").current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success(), "alias p failed");
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v0");
+
+    assert!(tour_cmd().arg("ls").current_dir(dir.path()).output().unwrap().status.success());
+    assert!(tour_cmd().arg("st").current_dir(dir.path()).output().unwrap().status.success());
+}
+
+// -- output style tests --
+
+#[test]
+fn test_no_ansi_codes_when_piped() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "v0\n");
+    tour_cmd().args(["commit", "f.txt", "-m", "s0"]).current_dir(dir.path()).output().unwrap();
+    create_test_file(dir.path(), "f.txt", "v1\n");
+    tour_cmd().args(["commit", "f.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+
+    tour_cmd().arg("start").current_dir(dir.path()).output().unwrap();
+    let output = tour_cmd().arg("next").current_dir(dir.path()).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains('\x1b'), "piped output must not contain ANSI escapes: {:?}", stdout);
+}
+
+// -- binary file tests --
+
+#[test]
+fn test_binary_file_navigation() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+
+    fs::write(dir.path().join("blob.bin"), [0u8, 159, 146, 150, 255]).unwrap();
+    tour_cmd().args(["commit", "blob.bin", "-m", "s0"]).current_dir(dir.path()).output().unwrap();
+    fs::write(dir.path().join("blob.bin"), [1u8, 2, 3, 255, 254]).unwrap();
+    tour_cmd().args(["commit", "blob.bin", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+
+    tour_cmd().arg("start").current_dir(dir.path()).output().unwrap();
+    assert_eq!(fs::read(dir.path().join("blob.bin")).unwrap(), [0u8, 159, 146, 150, 255]);
+
+    let output = tour_cmd().arg("next").current_dir(dir.path()).output().unwrap();
+    assert!(output.status.success(), "next over binary file failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read(dir.path().join("blob.bin")).unwrap(), [1u8, 2, 3, 255, 254]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("(binary file)"), "expected binary marker in: {}", stdout);
+}
+
+// -- storage efficiency tests --
+
+#[cfg(unix)]
+#[test]
+fn test_carry_forward_hardlinks_unchanged_files() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = setup_dir();
+    init_tour(dir.path());
+
+    create_test_file(dir.path(), "same.txt", "unchanged");
+    create_test_file(dir.path(), "diff.txt", "v0");
+    tour_cmd().args(["commit", "same.txt", "diff.txt", "-m", "s0"]).current_dir(dir.path()).output().unwrap();
+    create_test_file(dir.path(), "diff.txt", "v1");
+    tour_cmd().args(["commit", "diff.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+
+    let ino0 = fs::metadata(dir.path().join(".tour/steps/0/same.txt")).unwrap().ino();
+    let ino1 = fs::metadata(dir.path().join(".tour/steps/1/same.txt")).unwrap().ino();
+    assert_eq!(ino0, ino1, "unchanged file should share an inode across steps");
+
+    // The overlaid file must be a distinct inode (previous step untouched)
+    assert_eq!(fs::read_to_string(dir.path().join(".tour/steps/0/diff.txt")).unwrap(), "v0");
+    assert_eq!(fs::read_to_string(dir.path().join(".tour/steps/1/diff.txt")).unwrap(), "v1");
+}
+
+#[test]
+fn test_navigation_leaves_unchanged_files_untouched() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+
+    create_test_file(dir.path(), "same.txt", "unchanged");
+    create_test_file(dir.path(), "diff.txt", "v0");
+    tour_cmd().args(["commit", "same.txt", "diff.txt", "-m", "s0"]).current_dir(dir.path()).output().unwrap();
+    create_test_file(dir.path(), "diff.txt", "v1");
+    tour_cmd().args(["commit", "diff.txt", "-m", "s1"]).current_dir(dir.path()).output().unwrap();
+
+    tour_cmd().arg("start").current_dir(dir.path()).output().unwrap();
+    let mtime_before = fs::metadata(dir.path().join("same.txt")).unwrap().modified().unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    tour_cmd().arg("next").current_dir(dir.path()).output().unwrap();
+
+    let mtime_after = fs::metadata(dir.path().join("same.txt")).unwrap().modified().unwrap();
+    assert_eq!(mtime_before, mtime_after, "unchanged file must not be rewritten during navigation");
+    assert_eq!(fs::read_to_string(dir.path().join("diff.txt")).unwrap(), "v1");
+}
+
+#[test]
+fn test_old_format_tour_still_navigates() {
+    // A tour whose step dirs are plain copies (no hardlinks), as older
+    // versions produced, must still navigate correctly.
+    let dir = setup_dir();
+    init_tour(dir.path());
+
+    let steps = dir.path().join(".tour/steps");
+    fs::create_dir_all(steps.join("0")).unwrap();
+    fs::write(steps.join("0/f.txt"), "v0").unwrap();
+    fs::write(steps.join("0/message"), "s0").unwrap();
+    fs::create_dir_all(steps.join("1")).unwrap();
+    fs::write(steps.join("1/f.txt"), "v1").unwrap();
+    fs::write(steps.join("1/message"), "s1").unwrap();
+
+    tour_cmd().arg("start").current_dir(dir.path()).output().unwrap();
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v0");
+    tour_cmd().arg("next").current_dir(dir.path()).output().unwrap();
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v1");
+    tour_cmd().arg("prev").current_dir(dir.path()).output().unwrap();
+    assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v0");
 }

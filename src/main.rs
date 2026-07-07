@@ -12,6 +12,7 @@ mod reset;
 mod rm;
 mod status;
 mod step;
+mod style;
 mod unstage;
 mod utils;
 
@@ -60,18 +61,27 @@ enum Commands {
     },
 
     /// Advance n steps (default 1)
+    #[command(visible_alias = "n")]
     Next {
-        #[arg(short, value_name = "NUM STEPS")]
+        #[arg(value_name = "N")]
+        count: Option<u32>,
+
+        #[arg(short, value_name = "NUM STEPS", hide = true, conflicts_with = "count")]
         n: Option<u32>,
     },
 
     /// Go back n steps (default 1)
+    #[command(visible_alias = "p")]
     Prev {
-        #[arg(short, value_name = "NUM STEPS")]
+        #[arg(value_name = "N")]
+        count: Option<u32>,
+
+        #[arg(short, value_name = "NUM STEPS", hide = true, conflicts_with = "count")]
         n: Option<u32>,
     },
 
     /// Jump to step n
+    #[command(visible_alias = "s")]
     Step {
         #[arg(value_name = "STEP")]
         n: u32,
@@ -84,16 +94,29 @@ enum Commands {
     Info,
 
     /// Show current step and staged files
+    #[command(visible_alias = "st")]
     Status,
 
     /// List all steps with messages
+    #[command(visible_alias = "ls")]
     List,
 
     /// Reset tour session and remove tracked files
-    Reset,
+    Reset {
+        /// Skip the confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 fn main() {
+    // Die quietly on a closed pipe (e.g. `tour list | head`) like other CLI
+    // tools, instead of panicking; Rust ignores SIGPIPE by default.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let args = Args::parse();
     let result = match args.command {
         Some(Commands::Init) => crate::init::init(),
@@ -102,14 +125,14 @@ fn main() {
         Some(Commands::Commit { files, message }) => crate::commit::commit(files, message),
         Some(Commands::Rm { files }) => crate::rm::rm(files),
         Some(Commands::End { message }) => crate::end::end(message),
-        Some(Commands::Next { n }) => crate::step::next(n),
-        Some(Commands::Prev { n }) => crate::step::prev(n),
+        Some(Commands::Next { count, n }) => crate::step::next(count.or(n)),
+        Some(Commands::Prev { count, n }) => crate::step::prev(count.or(n)),
         Some(Commands::Step { n }) => crate::step::step_n(n),
         Some(Commands::Start) => crate::step::step_n(1),
         Some(Commands::Info) => crate::info::info(),
         Some(Commands::Status) => crate::status::status(),
         Some(Commands::List) => crate::list::list(),
-        Some(Commands::Reset) => crate::reset::reset(),
+        Some(Commands::Reset { force }) => crate::reset::reset(force),
         None => Ok(()),
     };
     if let Err(e) = result {
