@@ -17,8 +17,12 @@ pub fn init() -> Result<(), TourError> {
 
     fs::File::create(tour_dir.join("session"))?;
 
-    crate::info::set_info()?;
-    update_gitignore()?;
+    // A prompt aborted with Ctrl-C/EOF must not leave a half-built .tour behind,
+    // which would make every later `tour init` fail with TourAlreadyExists.
+    if let Err(e) = crate::info::set_info().and_then(|_| update_gitignore()) {
+        let _ = fs::remove_dir_all(&tour_dir);
+        return Err(e.into());
+    }
 
     Ok(())
 }
