@@ -9,7 +9,7 @@ pub fn status() -> Result<(), TourError> {
 
     let total = get_tour_step()?;
     let ended = Path::new(TOUR_DIR).join("ended").exists();
-    let current = get_current_step();
+    let current = get_current_step()?;
 
     println!("Tour: {} steps{}", total, if ended { " (ended)" } else { "" });
 

@@ -13,14 +13,42 @@ pub fn require_tour() -> Result<(), TourError> {
     Ok(())
 }
 
-pub fn get_current_step() -> Option<u32> {
-    fs::read_to_string(SESSION_PATH)
-        .ok()
-        .and_then(|s| {
-            s.lines()
-                .find_map(|l| l.strip_prefix("STEP="))
-                .and_then(|v| v.trim().parse::<u32>().ok())
-        })
+/// Fails the command if the tour is missing or already ended. Use for any
+/// command that mutates authoring state.
+pub fn require_active() -> Result<(), TourError> {
+    require_tour()?;
+    if Path::new(TOUR_DIR).join("ended").exists() {
+        return Err(TourError::TourEnded);
+    }
+    Ok(())
+}
+
+/// Collapses `./a/./b` to `a/b` so the same file always has one spelling in
+/// the staged/removed lists and in step snapshots.
+pub fn normalize_path(p: &Path) -> PathBuf {
+    // components() drops interior "." but keeps a leading one, so filter it out.
+    p.components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect()
+}
+
+/// `Ok(None)` means no session yet; a session file with an unreadable STEP is
+/// corruption, not "not started".
+pub fn get_current_step() -> Result<Option<u32>, TourError> {
+    let content = match fs::read_to_string(SESSION_PATH) {
+        Ok(c) => c,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    match content.lines().find_map(|l| l.strip_prefix("STEP=")) {
+        None if content.trim().is_empty() => Ok(None),
+        None => Err(TourError::CorruptedTour(
+            "session file has no STEP= entry".into(),
+        )),
+        Some(v) => v.trim().parse::<u32>().map(Some).map_err(|_| {
+            TourError::CorruptedTour(format!("session step {:?} is not a number", v.trim()))
+        }),
+    }
 }
 
 pub fn get_tour_step() -> Result<u32, TourError> {

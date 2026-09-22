@@ -8,7 +8,7 @@ use std::path::Path;
 pub fn list() -> Result<(), TourError> {
     require_tour()?;
     let total = get_tour_step()?;
-    let current = get_current_step();
+    let current = get_current_step()?;
 
     if total == 0 {
         println!("No steps yet.");

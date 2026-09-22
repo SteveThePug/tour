@@ -31,7 +31,7 @@ pub fn next(n: Option<u32>) -> Result<(), TourError> {
     }
     let delta = n.unwrap_or(1);
     let last = total - 1;
-    match get_current_step() {
+    match get_current_step()? {
         Some(current) if current >= last => {
             println!("Already at the last step ({total}/{total}).");
             Ok(())
@@ -48,7 +48,7 @@ pub fn prev(n: Option<u32>) -> Result<(), TourError> {
         return Err(TourError::NoStepsToNavigate);
     }
     let delta = n.unwrap_or(1);
-    let current = get_current_step().ok_or(TourError::NotStarted)?;
+    let current = get_current_step()?.ok_or(TourError::NotStarted)?;
     if current == 0 {
         println!("Already at the first step (1/{total}).");
         return Ok(());
@@ -72,7 +72,7 @@ fn go_to_step(target: u32, total: u32) -> Result<(), TourError> {
 
     // Files the tour owns in the working directory: the current step's set if a
     // session exists, otherwise every file any step tracks (conservative).
-    let current_files = match get_current_step() {
+    let current_files = match get_current_step()? {
         Some(current) if steps_dir.join(current.to_string()).is_dir() => {
             let dir = steps_dir.join(current.to_string());
             let mut set = BTreeSet::new();
