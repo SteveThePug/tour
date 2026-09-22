@@ -1,6 +1,6 @@
 use crate::error::TourError;
 use crate::style::{green, reset};
-use crate::utils::{require_tour, validate_paths};
+use crate::utils::{normalize_path, require_active, validate_paths};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 pub const STAGED_PATH: &str = "./.tour/staged";
 
 pub fn add(files: Vec<PathBuf>) -> Result<(), TourError> {
-    require_tour()?;
+    require_active()?;
     validate_paths(&files)?;
 
     let existing = get_staged()?;
@@ -20,7 +20,7 @@ pub fn add(files: Vec<PathBuf>) -> Result<(), TourError> {
         .open(STAGED_PATH)?;
 
     for file in &files {
-        let normalized: PathBuf = file.components().collect();
+        let normalized = normalize_path(file);
         if existing_set.contains(&normalized) {
             println!("already staged: {}", normalized.display());
         } else {

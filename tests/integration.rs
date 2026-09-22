@@ -698,3 +698,66 @@ fn test_old_format_tour_still_navigates() {
     tour_cmd().arg("prev").current_dir(dir.path()).output().unwrap();
     assert_eq!(fs::read_to_string(dir.path().join("f.txt")).unwrap(), "v0");
 }
+
+// -- path normalisation, ended-tour guards, corrupt session --
+
+#[test]
+fn test_unstage_and_rm_normalize_paths() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "a");
+
+    // Staged as "f.txt"; unstaging the "./f.txt" spelling must match it.
+    tour_cmd().args(["add", "f.txt"]).current_dir(dir.path()).output().unwrap();
+    let out = tour_cmd().args(["unstage", "./f.txt"]).current_dir(dir.path()).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("unstaged: f.txt"), "got: {stdout}");
+    assert_eq!(fs::read_to_string(dir.path().join(".tour/staged")).unwrap(), "");
+
+    // Same for rm: "./f.txt" must match the tracked "f.txt" and be recorded normalized.
+    tour_cmd().args(["commit", "f.txt", "-m", "one"]).current_dir(dir.path()).output().unwrap();
+    let out = tour_cmd().args(["rm", "./f.txt"]).current_dir(dir.path()).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("marked for removal: f.txt"), "got: {stdout}");
+    assert_eq!(fs::read_to_string(dir.path().join(".tour/removed")).unwrap(), "f.txt\n");
+}
+
+#[test]
+fn test_rm_ignores_untracked_file() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "a");
+
+    let out = tour_cmd().args(["rm", "f.txt"]).current_dir(dir.path()).output().unwrap();
+    assert!(String::from_utf8_lossy(&out.stdout).contains("not tracked"));
+    assert!(!dir.path().join(".tour/removed").exists()
+        || fs::read_to_string(dir.path().join(".tour/removed")).unwrap().is_empty());
+}
+
+#[test]
+fn test_staging_rejected_after_end() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "a");
+    tour_cmd().args(["commit", "f.txt", "-m", "one"]).current_dir(dir.path()).output().unwrap();
+    tour_cmd().args(["end", "-m", "done"]).current_dir(dir.path()).output().unwrap();
+
+    for args in [vec!["add", "f.txt"], vec!["rm", "f.txt"], vec!["unstage", "f.txt"]] {
+        let out = tour_cmd().args(&args).current_dir(dir.path()).output().unwrap();
+        assert!(!out.status.success(), "{args:?} should fail on an ended tour");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("already been ended"));
+    }
+}
+
+#[test]
+fn test_corrupt_session_is_an_error() {
+    let dir = setup_dir();
+    init_tour(dir.path());
+    create_test_file(dir.path(), "f.txt", "a");
+    tour_cmd().args(["commit", "f.txt", "-m", "one"]).current_dir(dir.path()).output().unwrap();
+    fs::write(dir.path().join(".tour/session"), "STEP=banana").unwrap();
+
+    let out = tour_cmd().arg("status").current_dir(dir.path()).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("corrupted"));
+}

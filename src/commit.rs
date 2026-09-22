@@ -2,19 +2,15 @@ use crate::add::{clear_staged, get_staged};
 use crate::error::TourError;
 use crate::rm::{clear_removed, get_removed};
 use crate::style::{bold, reset};
-use crate::utils::{copy_path, get_tour_step, require_tour, validate_paths};
+use crate::utils::{copy_path, get_tour_step, normalize_path, require_active, validate_paths};
 use crate::TOUR_DIR;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn commit(files: Vec<PathBuf>, message: String) -> Result<(), TourError> {
-    require_tour()?;
+    require_active()?;
     let tour_dir = Path::new(TOUR_DIR);
-
-    if tour_dir.join("ended").exists() {
-        return Err(TourError::TourEnded);
-    }
 
     let used_staging = files.is_empty();
     let files = if used_staging {
@@ -24,7 +20,7 @@ pub fn commit(files: Vec<PathBuf>, message: String) -> Result<(), TourError> {
         }
         staged
     } else {
-        files
+        files.iter().map(|f| normalize_path(f)).collect()
     };
 
     validate_paths(&files)?;
